@@ -4,6 +4,7 @@
 #include <climits>
 #include <cmath>
 #include <complex>
+#include <ctime>
 #include <functional>
 #include <iomanip>
 #include <iostream>
@@ -193,21 +194,32 @@ using weight_t  = ll;
 using ans_vec_t = bitset<3008>;
 
 const ll MAX_PENA = 1'000'000'000;
+clock_t  begin_time;
 
 struct Edge {
-    vertex_t v[2];
+    vertex_t v0;
+    vertex_t v1;
     weight_t w;
     edge_idx id;
+    Edge(vertex_t _v0, vertex_t _v1, weight_t _w, edge_idx _id)
+        : v0(_v0), v1(_v1), w(_w), id(_id) {
+    }
+    Edge() : v0(-1), v1(-1), w(-1), id(-1) {
+    }
 };
 
 bool operator<(const Edge &lhs, const Edge &rhs) {
-    return lhs.w < rhs.w;
+    return lhs.w > rhs.w;
+    // if (lhs.v0 == rhs.v0)
+    //     return lhs.v1 < rhs.v1;
+    // else
+    //     return lhs.v0 < rhs.v0;
 }
 
 struct DEdge {
-    vertex_t to;
-    weight_t w;
-    edge_idx id;
+    const vertex_t to;
+    const weight_t w;
+    const edge_idx id;
     DEdge(vertex_t _to, weight_t _w, edge_idx _id) : to(_to), w(_w), id(_id) {
     }
 };
@@ -230,10 +242,7 @@ struct Solver {
             cin >> v0 >> v1 >> w;
             --v0;
             --v1;
-            edge[i].v[0] = v0;
-            edge[i].v[1] = v1;
-            edge[i].w    = w;
-            edge[i].id   = i;
+            edge[i] = Edge(v0, v1, w, i);
             gph[v0].emplace_back(v1, w, i);
             gph[v1].emplace_back(v0, w, i);
         }
@@ -247,33 +256,45 @@ struct Solver {
         }
     }
 
-    pair<int, ll> connection(int day) {
-        UnionFind uf(N);
-        int       disconnect = N * (N - 1) / 2;
-        ll        w_sum      = 0;
+    pair<ll, double> connection(int day) const {
+        UnionFind   uf(N);
+        int         disconnect = N * (N - 1) / 2;
+        vector<int> degree(N);
         for (auto &e : edge) {
             if (ans[day][e.id]) continue;
-            w_sum += e.w;
-            vertex_t a = e.v[0];
-            vertex_t b = e.v[1];
+            vertex_t a = e.v0;
+            vertex_t b = e.v1;
+            degree[a]++;
+            degree[b]++;
             if (uf.same(a, b)) continue;
             disconnect -= uf.size(a) * uf.size(b);
             uf.unite(a, b);
         }
-        return {disconnect, -w_sum};
+        double degereeSum = 0.0;
+        for(auto &i : gph) {
+            int ncnt = 0, mcnt = 0;
+            for(auto &j : i) {
+                mcnt += gph[j.to].size() - 1;
+                if(ans[day][j.id]) continue;
+                ncnt += degree[j.to] - 1;
+            }
+            auto tmp = 1.0 - (double)ncnt / mcnt;
+            degereeSum += tmp * tmp;
+        }
+        return {disconnect, degereeSum};
     }
 
     void init_ans() {
-        rep(i, M) {
-            int           id  = -1;
-            pair<int, ll> now = {N * N, LLONG_MAX / 2};
+        for (auto &e : sorted_edge) {
+            int                                  id  = -1;
+            decltype(connection(declval<int>())) now = {N * N, LLONG_MAX / 2};
             rep(d, D) {
-                ans[d].set(i);
+                ans[d].set(e.id);
                 if ((int)ans[d].count() < K && chmin(now, connection(d)))
                     id = d;
-                ans[d].reset(i);
+                ans[d].reset(e.id);
             }
-            ans[id].set(i);
+            ans[id].set(e.id);
         }
     }
 
@@ -287,7 +308,7 @@ struct Solver {
         vdeb(out);
     }
 
-    weight_t shortest_path(vertex_t s) {
+    weight_t shortest_path(vertex_t s) const {
         vector<weight_t>                  dist(M, MAX_PENA);
         MinHeap<pair<weight_t, vertex_t>> que;
         que.push({0, s});
@@ -305,7 +326,7 @@ struct Solver {
         return accumulate(all(dist), 0LL);
     }
 
-    weight_t shortest_path(vertex_t s, int day) {
+    weight_t shortest_path(vertex_t s, int day) const {
         assert(0 <= day && day < D);
         vector<weight_t>                  dist(M, MAX_PENA);
         MinHeap<pair<weight_t, vertex_t>> que;
@@ -325,17 +346,22 @@ struct Solver {
     }
 
     // day = -1 のとき全部使える
-    double calc_score(int day) {
+    double calc_score(int day) const {
         ll res = 0;
         rep(i, N) res -= shortest_path(i);
         rep(i, N) res += shortest_path(i, day);
         return (double)res / (N * (N - 1));
     }
 
-    ll calc_score_all() {
+    ll calc_score_all() const {
         double res = 0;
         rep(i, D) res += calc_score(i);
         return round(res / D * 1000);
+    }
+
+    void anneal() {
+        while ((clock() - begin_time) < 5.6 * CLOCKS_PER_SEC) {
+        }
     }
 
     Solver(int n, int m, int d, int k)
@@ -347,6 +373,7 @@ struct Solver {
 };
 
 int main() {
+    begin_time = clock();
     ios::sync_with_stdio(false);
     std::cin.tie(nullptr);
     int n, m, d, k;

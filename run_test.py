@@ -2,7 +2,7 @@ import os
 import joblib
 
 n_parallel = 3
-n_tests = 50
+n_tests = 100
 
 def get_score(seed: int) -> int:
     inputfile = f"tools/in/{seed:04}.txt"
