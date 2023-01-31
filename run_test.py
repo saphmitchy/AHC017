@@ -17,5 +17,5 @@ def run_all():
     print(sum(res))
 
 if __name__ == '__main__':
-    os.system("g++ -std=c++17 -Wall -O2 main.cpp -o main")
+    os.system("g++ -std=gnu++17 -Wall -Wextra -O2  main.cpp -o main")
     run_all()

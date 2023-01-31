@@ -1,3 +1,7 @@
+#ifdef ONLINE_JUDGE
+#define NDEBUG
+#endif
+
 #include <algorithm>
 #include <bitset>
 #include <cassert>
@@ -193,8 +197,10 @@ using edge_idx  = size_t;
 using weight_t  = ll;
 using ans_vec_t = bitset<3008>;
 
-const ll MAX_PENA = 1'000'000'000;
-clock_t  begin_time;
+const ll      MAX_PENA = 1'000'000'000;
+random_device seed_gen;
+mt19937       mt(seed_gen());
+clock_t       begin_time;
 
 struct Edge {
     vertex_t v0;
@@ -229,12 +235,14 @@ struct Point {
 };
 
 struct Solver {
-    const int             N, M, D, K;
-    vector<Edge>          edge;
-    vector<Edge>          sorted_edge;
-    vector<Point>         p;
-    vector<ans_vec_t>     ans;
-    vector<vector<DEdge>> gph;
+    const int                          N, M, D, K;
+    vector<Edge>                       edge;
+    vector<Edge>                       sorted_edge;
+    vector<Point>                      p;
+    vector<ans_vec_t>                  ans;
+    vector<vector<DEdge>>              gph;
+    uniform_int_distribution<edge_idx> randM;
+    uniform_int_distribution<edge_idx> randD_1;
 
     void input_edge() {
         rep(i, M) {
@@ -256,7 +264,7 @@ struct Solver {
         }
     }
 
-    pair<ll, double> connection(int day) const {
+    pair<ll, double> connection_and_degree(int day) const {
         UnionFind   uf(N);
         int         disconnect = N * (N - 1) / 2;
         vector<int> degree(N);
@@ -271,11 +279,11 @@ struct Solver {
             uf.unite(a, b);
         }
         double degereeSum = 0.0;
-        for(auto &i : gph) {
+        for (auto &i : gph) {
             int ncnt = 0, mcnt = 0;
-            for(auto &j : i) {
+            for (auto &j : i) {
                 mcnt += gph[j.to].size() - 1;
-                if(ans[day][j.id]) continue;
+                if (ans[day][j.id]) continue;
                 ncnt += degree[j.to] - 1;
             }
             auto tmp = 1.0 - (double)ncnt / mcnt;
@@ -284,18 +292,45 @@ struct Solver {
         return {disconnect, degereeSum};
     }
 
+    ll connection(int day) {
+        UnionFind uf(N);
+        int       disconnect = N * (N - 1) / 2;
+        for (auto &e : edge) {
+            if (ans[day][e.id]) continue;
+            vertex_t a = e.v0;
+            vertex_t b = e.v1;
+            if (uf.same(a, b)) continue;
+            disconnect -= uf.size(a) * uf.size(b);
+            uf.unite(a, b);
+        }
+        return disconnect;
+    }
+
     void init_ans() {
         for (auto &e : sorted_edge) {
-            int                                  id  = -1;
-            decltype(connection(declval<int>())) now = {N * N, LLONG_MAX / 2};
+            using score_type =
+                decltype(connection_and_degree(declval<edge_idx>()));
+            score_type now = {N * N, LLONG_MAX / 2};
+            int        id  = -1;
             rep(d, D) {
                 ans[d].set(e.id);
-                if ((int)ans[d].count() < K && chmin(now, connection(d)))
+                if ((int)ans[d].count() < K &&
+                    chmin(now, connection_and_degree(d)))
                     id = d;
                 ans[d].reset(e.id);
             }
             ans[id].set(e.id);
         }
+    }
+
+    auto check_diff(edge_idx eid, int day) {
+        ans[day].flip(eid);
+        auto res =
+            shortest_path(edge[eid].v0, day) + shortest_path(edge[eid].v1, day);
+        ans[day].flip(eid);
+        res -=
+            shortest_path(edge[eid].v0, day) + shortest_path(edge[eid].v1, day);
+        return res;
     }
 
     void output() const {
@@ -308,9 +343,31 @@ struct Solver {
         vdeb(out);
     }
 
+    weight_t twopoint_shortest_path(vertex_t s, vertex_t t, int day) {
+        assert(0 <= day && day < D);
+        vector<bool> used(M, false);
+        using heapNode = pair<weight_t, vertex_t>;
+        MinHeap<heapNode> que;
+        que.push({0, s});
+        while (!que.empty()) {
+            auto [w, v] = que.top();
+            que.pop();
+            if (used[v]) continue;
+            if (v == t) return w;
+            used[v] = true;
+            for (auto &e : gph[v]) {
+                if (!used[e.to] && !ans[day][e.id]) {
+                    que.push({w + e.w, e.to});
+                }
+            }
+        }
+        return MAX_PENA;
+    }
+
     weight_t shortest_path(vertex_t s) const {
-        vector<weight_t>                  dist(M, MAX_PENA);
-        MinHeap<pair<weight_t, vertex_t>> que;
+        vector<weight_t> dist(M, MAX_PENA);
+        using heapNode = pair<weight_t, vertex_t>;
+        MinHeap<heapNode> que;
         que.push({0, s});
         while (!que.empty()) {
             auto [w, v] = que.top();
@@ -328,8 +385,9 @@ struct Solver {
 
     weight_t shortest_path(vertex_t s, int day) const {
         assert(0 <= day && day < D);
-        vector<weight_t>                  dist(M, MAX_PENA);
-        MinHeap<pair<weight_t, vertex_t>> que;
+        vector<weight_t> dist(M, MAX_PENA);
+        using heapNode = pair<weight_t, vertex_t>;
+        MinHeap<heapNode> que;
         que.push({0, s});
         while (!que.empty()) {
             auto [w, v] = que.top();
@@ -360,15 +418,46 @@ struct Solver {
     }
 
     void anneal() {
-        while ((clock() - begin_time) < 5.6 * CLOCKS_PER_SEC) {
+        while ((clock() - begin_time) < 5.7 * CLOCKS_PER_SEC) {
+            auto crr_edge   = randM(mt);
+            auto crr_offset = randD_1(mt);
+            int  a = -1, b = -1;
+            rep(d, D) {
+                if (ans[d][crr_edge]) {
+                    a = d;
+                    b = a + crr_offset;
+                    if (D <= b) b -= D;
+                    break;
+                }
+            }
+            if((int)ans[b].count() == K) continue;
+            auto connect1 = connection(b);
+            ans[b].flip(crr_edge);
+            auto connect2 = connection(b);
+            ans[b].flip(crr_edge);
+            if (connect2 <= connect1 &&
+                check_diff(crr_edge, a) + check_diff(crr_edge, b) < 0) {
+                ans[a].flip(crr_edge);
+                ans[b].flip(crr_edge);
+            }
         }
     }
 
     Solver(int n, int m, int d, int k)
-        : N(n), M(m), D(d), K(k), edge(m), p(n), ans(d), gph(n) {
+        : N(n),
+          M(m),
+          D(d),
+          K(k),
+          edge(m),
+          p(n),
+          ans(d),
+          gph(n),
+          randM(0, M - 1),
+          randD_1(0, D - 2) {
         input_edge();
         input_point();
         init_ans();
+        anneal();
     }
 };
 
