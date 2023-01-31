@@ -198,6 +198,7 @@ using weight_t  = ll;
 using ans_vec_t = bitset<3008>;
 
 const ll      MAX_PENA = 1'000'000'000;
+const double TIME_LIMIT = 5.7;
 random_device seed_gen;
 mt19937       mt(seed_gen());
 clock_t       begin_time;
@@ -417,8 +418,13 @@ struct Solver {
         return round(res / D * 1000);
     }
 
+    bool thermo(long long diff) {
+        return diff < 0;
+        // return exp(-diff/2e12*(clock() - begin_time)) * mt19937::max() > mt();
+    }
+
     void anneal() {
-        while ((clock() - begin_time) < 5.7 * CLOCKS_PER_SEC) {
+        while ((clock() - begin_time) < TIME_LIMIT * CLOCKS_PER_SEC) {
             auto crr_edge   = randM(mt);
             auto crr_offset = randD_1(mt);
             int  a = -1, b = -1;
@@ -435,8 +441,8 @@ struct Solver {
             ans[b].flip(crr_edge);
             auto connect2 = connection(b);
             ans[b].flip(crr_edge);
-            if (connect2 <= connect1 &&
-                check_diff(crr_edge, a) + check_diff(crr_edge, b) < 0) {
+            auto diff = check_diff(crr_edge, a) + check_diff(crr_edge, b);
+            if (connect2 <= connect1 && thermo(diff)) {
                 ans[a].flip(crr_edge);
                 ans[b].flip(crr_edge);
             }
