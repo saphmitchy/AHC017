@@ -192,16 +192,18 @@ class UnionFind {
 
 using namespace std;
 
-using vertex_t  = int;
-using edge_idx  = size_t;
-using weight_t  = ll;
-using ans_vec_t = bitset<3008>;
+using vertex_t    = int;
+using edge_idx    = size_t;
+using weight_t    = ll;
+using ans_vec_t   = bitset<3008>;
+using vertex_mask = bitset<1024>;
 
-const ll      MAX_PENA = 1'000'000'000;
-const double TIME_LIMIT = 5.7;
-random_device seed_gen;
-mt19937       mt(seed_gen());
-clock_t       begin_time;
+const weight_t MAX_PENA   = 1'000'000'000;
+const vertex_t NONE       = -1;
+const double   TIME_LIMIT = 5.7;
+random_device  seed_gen;
+mt19937        mt(seed_gen());
+clock_t        begin_time;
 
 struct Edge {
     vertex_t v0;
@@ -235,15 +237,190 @@ struct Point {
     int x, y;
 };
 
+struct Schedule {
+    const int   M;
+    const int   D;
+    vector<int> ans;
+    vector<int> counter;
+
+    Schedule(const int m, const int d) : M(m), D(d), ans(m, -1), counter(d) {
+    }
+
+    bool is_avalable(const vertex_t eid, const int day) const {
+        return ans[eid] != day;
+    }
+
+    void set_day(const vertex_t eid, const int day) {
+        if (ans[eid] != NONE) counter[ans[eid]]--;
+        ans[eid] = day;
+        if (day != NONE) counter[day]++;
+    }
+
+    int count(int day) const {
+        return counter[day];
+    }
+
+    int get(vertex_t eid) const {
+        return ans[eid];
+    }
+};
+
+#define TRY_FLIP(schedule, eid, day, ...) \
+    auto tmp_day = schedule.ans[eid];     \
+    if (tmp_day == day) {                 \
+        schedule.ans[eid] = -1;           \
+    } else {                              \
+        schedule.ans[eid] = day;          \
+    }                                     \
+    schedule.counter[tmp_day]--;          \
+    __VA_ARGS__                           \
+    schedule.counter[tmp_day]++;          \
+    schedule.ans[eid] = tmp_day;
+
+struct MiniGraph {
+    static const int loop_count = 100;
+    const int        N;
+    const int        D;
+    const int        K;
+
+    vector<vector<DEdge>>         gph;
+    vector<vector<vector<DEdge>>> dgph;
+    map<vertex_t, vertex_t>       global2local;
+    vector<vertex_t>              local2global;
+    edge_idx                      edge_count;
+    vector<Edge>                  edge;
+    vector<ans_vec_t>             ans;
+
+    MiniGraph(int d, int k, const vector<vertex_t> &g)
+        : N(g.size()),
+          D(d),
+          K(k),
+          gph(g.size()),
+          dgph(D, vector<vector<DEdge>>(N)),
+          edge_count(0),
+          ans(d) {
+        local2global.reserve(g.size());
+        int cnt = 0;
+        for (auto &i : g) {
+            global2local[cnt] = i;
+            local2global.emplace_back(i);
+            ++cnt;
+        }
+    }
+
+    ll connection(const int day) {
+        UnionFind uf(N);
+        int       disconnect = N * (N - 1) / 2;
+        for (auto &e : edge) {
+            if (ans[day][e.id]) continue;
+            vertex_t a = e.v0;
+            vertex_t b = e.v1;
+            if (uf.same(a, b)) continue;
+            disconnect -= uf.size(a) * uf.size(b);
+            uf.unite(a, b);
+        }
+        return disconnect;
+    }
+
+    auto check_diff(const edge_idx eid, const int day) {
+        ans[day].flip(eid);
+        auto res =
+            shortest_path(edge[eid].v0, day) + shortest_path(edge[eid].v1, day);
+        ans[day].flip(eid);
+        res -=
+            shortest_path(edge[eid].v0, day) + shortest_path(edge[eid].v1, day);
+        return res;
+    }
+
+    weight_t shortest_path(const vertex_t s, const int day) const {
+        assert(0 <= day && day < D);
+        vector<weight_t> dist(edge_count, MAX_PENA);
+        using heapNode = pair<weight_t, vertex_t>;
+        MinHeap<heapNode> que;
+        que.push({0, s});
+        while (!que.empty()) {
+            const auto [w, v] = que.top();
+            que.pop();
+            if (dist[v] != MAX_PENA) continue;
+            dist[v] = w;
+            for (const auto &e : gph[v]) {
+                if (dist[e.to] == MAX_PENA && !ans[day][e.id]) {
+                    que.push({w + e.w, e.to});
+                }
+            }
+            for (const auto &e : dgph[day][v]) {
+                if (dist[e.to] == MAX_PENA && !ans[day][e.id]) {
+                    que.push({w + e.w, e.to});
+                }
+            }
+        }
+        return accumulate(all(dist), 0LL);
+    }
+
+    edge_idx add_edge(const vertex_t from,
+                      const vertex_t to,
+                      const weight_t w,
+                      const int      unused_day) {
+        edge.emplace_back(from, to, w, edge_count);
+        gph[global2local[from]].emplace_back(local2global[to], w, edge_count);
+        ans[unused_day].set(edge_count);
+        return edge_count++;
+    }
+
+    void add_day_edge(const vertex_t from,
+                      const vertex_t to,
+                      const weight_t w,
+                      const int      day) {
+        edge.emplace_back(from, to, w, edge_count);
+        dgph[day][global2local[from]].emplace_back(
+            local2global[to], w, edge_count);
+        // ++edge_count;
+    }
+
+    bool thermo(long long diff) {
+        return diff < 0;
+        // return exp(-diff/2e12*(clock() - begin_time)) * mt19937::max() >
+        // mt();
+    }
+
+    void anneal() {
+        uniform_int_distribution<edge_idx> select_edge(0, edge_count - 1);
+        uniform_int_distribution<int>      select_day(0, D - 1);
+        rep(i, 100) {
+            const auto crr_edge   = select_edge(mt);
+            const auto crr_offset = select_day(mt);
+            int        a = -1, b = -1;
+            rep(d, D) {
+                if (ans[d][crr_edge]) {
+                    a = b;
+                    b = a + crr_offset;
+                    if (D <= b) b -= D;
+                    break;
+                }
+            }
+            if ((int)ans[b].count() == K) continue;
+            const auto connect1 = connection(b);
+            ans[b].flip(crr_edge);
+            const auto connect2 = connection(b);
+            ans[b].flip(crr_edge);
+            const auto diff = check_diff(crr_edge, a) + check_diff(crr_edge, b);
+            if (connect2 <= connect1 && thermo(diff)) {
+                ans[a].flip(crr_edge);
+                ans[b].flip(crr_edge);
+            }
+        }
+    }
+};
+
 struct Solver {
     const int                          N, M, D, K;
     vector<Edge>                       edge;
     vector<Edge>                       sorted_edge;
-    vector<Point>                      p;
-    vector<ans_vec_t>                  ans;
+    vector<Point>                      points;
+    Schedule                           ans;
     vector<vector<DEdge>>              gph;
     uniform_int_distribution<edge_idx> randM;
-    uniform_int_distribution<edge_idx> randD_1;
+    uniform_int_distribution<int>      randD_1;
 
     void input_edge() {
         rep(i, M) {
@@ -260,17 +437,17 @@ struct Solver {
     }
 
     void input_point() {
-        for (auto &i : p) {
+        for (auto &i : points) {
             cin >> i.x >> i.y;
         }
     }
 
-    pair<ll, double> connection_and_degree(int day) const {
+    pair<ll, double> connection_and_degree(const int day) const {
         UnionFind   uf(N);
         int         disconnect = N * (N - 1) / 2;
         vector<int> degree(N);
         for (auto &e : edge) {
-            if (ans[day][e.id]) continue;
+            if (!ans.is_avalable(e.id, day)) continue;
             vertex_t a = e.v0;
             vertex_t b = e.v1;
             degree[a]++;
@@ -284,20 +461,20 @@ struct Solver {
             int ncnt = 0, mcnt = 0;
             for (auto &j : i) {
                 mcnt += gph[j.to].size() - 1;
-                if (ans[day][j.id]) continue;
+                if (!ans.is_avalable(j.id, day)) continue;
                 ncnt += degree[j.to] - 1;
             }
-            auto tmp = 1.0 - (double)ncnt / mcnt;
+            const auto tmp = 1.0 - (double)ncnt / mcnt;
             degereeSum += tmp * tmp;
         }
         return {disconnect, degereeSum};
     }
 
-    ll connection(int day) {
+    ll connection(const int day) {
         UnionFind uf(N);
         int       disconnect = N * (N - 1) / 2;
         for (auto &e : edge) {
-            if (ans[day][e.id]) continue;
+            if (!ans.is_avalable(e.id, day)) continue;
             vertex_t a = e.v0;
             vertex_t b = e.v1;
             if (uf.same(a, b)) continue;
@@ -308,27 +485,28 @@ struct Solver {
     }
 
     void init_ans() {
-        for (auto &e : sorted_edge) {
+        for (const auto &e : sorted_edge) {
             using score_type =
                 decltype(connection_and_degree(declval<edge_idx>()));
-            score_type now = {N * N, LLONG_MAX / 2};
-            int        id  = -1;
+            score_type now     = {N * N, LLONG_MAX / 2};
+            int        crr_day = -1;
             rep(d, D) {
-                ans[d].set(e.id);
-                if ((int)ans[d].count() < K &&
-                    chmin(now, connection_and_degree(d)))
-                    id = d;
-                ans[d].reset(e.id);
+                ans.set_day(e.id, d);
+                if (ans.count(d) < K && chmin(now, connection_and_degree(d)))
+                    crr_day = d;
+                ans.set_day(e.id, NONE);
             }
-            ans[id].set(e.id);
+            ans.set_day(e.id, crr_day);
+            // cout << crr_day << " "; vdeb(ans.counter);
         }
     }
 
     auto check_diff(edge_idx eid, int day) {
-        ans[day].flip(eid);
-        auto res =
-            shortest_path(edge[eid].v0, day) + shortest_path(edge[eid].v1, day);
-        ans[day].flip(eid);
+        TRY_FLIP(ans,
+                 eid,
+                 day,
+                 auto res = shortest_path(edge[eid].v0, day) +
+                            shortest_path(edge[eid].v1, day);)
         res -=
             shortest_path(edge[eid].v0, day) + shortest_path(edge[eid].v1, day);
         return res;
@@ -337,45 +515,22 @@ struct Solver {
     void output() const {
         vector<int> out(M);
         rep(i, M) {
-            rep(j, D) {
-                if (ans[j][i]) out[i] = j + 1;
-            }
+            out[i] = ans.get(i) + 1;
         }
         vdeb(out);
     }
 
-    weight_t twopoint_shortest_path(vertex_t s, vertex_t t, int day) {
-        assert(0 <= day && day < D);
-        vector<bool> used(M, false);
-        using heapNode = pair<weight_t, vertex_t>;
-        MinHeap<heapNode> que;
-        que.push({0, s});
-        while (!que.empty()) {
-            auto [w, v] = que.top();
-            que.pop();
-            if (used[v]) continue;
-            if (v == t) return w;
-            used[v] = true;
-            for (auto &e : gph[v]) {
-                if (!used[e.to] && !ans[day][e.id]) {
-                    que.push({w + e.w, e.to});
-                }
-            }
-        }
-        return MAX_PENA;
-    }
-
-    weight_t shortest_path(vertex_t s) const {
+    weight_t shortest_path(const vertex_t s) const {
         vector<weight_t> dist(M, MAX_PENA);
         using heapNode = pair<weight_t, vertex_t>;
         MinHeap<heapNode> que;
         que.push({0, s});
         while (!que.empty()) {
-            auto [w, v] = que.top();
+            const auto [w, v] = que.top();
             que.pop();
             if (dist[v] != MAX_PENA) continue;
             dist[v] = w;
-            for (auto &e : gph[v]) {
+            for (const auto &e : gph[v]) {
                 if (dist[e.to] == MAX_PENA) {
                     que.push({w + e.w, e.to});
                 }
@@ -384,19 +539,19 @@ struct Solver {
         return accumulate(all(dist), 0LL);
     }
 
-    weight_t shortest_path(vertex_t s, int day) const {
+    weight_t shortest_path(const vertex_t s, const int day) const {
         assert(0 <= day && day < D);
         vector<weight_t> dist(M, MAX_PENA);
         using heapNode = pair<weight_t, vertex_t>;
         MinHeap<heapNode> que;
         que.push({0, s});
         while (!que.empty()) {
-            auto [w, v] = que.top();
+            const auto [w, v] = que.top();
             que.pop();
             if (dist[v] != MAX_PENA) continue;
             dist[v] = w;
-            for (auto &e : gph[v]) {
-                if (dist[e.to] == MAX_PENA && !ans[day][e.id]) {
+            for (const auto &e : gph[v]) {
+                if (dist[e.to] == MAX_PENA && ans.is_avalable(e.id, day)) {
                     que.push({w + e.w, e.to});
                 }
             }
@@ -405,7 +560,7 @@ struct Solver {
     }
 
     // day = -1 のとき全部使える
-    double calc_score(int day) const {
+    double calc_score(const int day) const {
         ll res = 0;
         rep(i, N) res -= shortest_path(i);
         rep(i, N) res += shortest_path(i, day);
@@ -418,33 +573,76 @@ struct Solver {
         return round(res / D * 1000);
     }
 
+    vector<vertex_t> accumulate_near(const Point &center, double dist) const {
+        const double     sqdist = dist * 2;
+        vector<vertex_t> res;
+        res.reserve(30);
+        rep(i, N) {
+            int dx = center.x - points[i].x;
+            int dy = center.y - points[i].y;
+            if (dx * dx + dy * dy < sqdist) {
+                res.emplace_back(i);
+            }
+        }
+        return res;
+    }
+
+    pair<vertex_t, weight_t> shortest_element(const vertex_t   from,
+                                              const DEdge     &e,
+                                              const ans_vec_t &target_bit,
+                                              const int        day) {
+        vector<bool> used(N);
+        used[from]     = true;
+        using heapNode = pair<weight_t, vertex_t>;
+        MinHeap<heapNode> que;
+        que.push({0, e.to});
+        while (!que.empty()) {
+            const auto [w, v] = que.top();
+            que.pop();
+            if (used[v]) continue;
+            if (target_bit[v]) return {v, w};
+            used[v] = true;
+            for (const auto &e : gph[v]) {
+                if (!used[e.to] && ans.is_avalable(e.id, day)) {
+                    que.push({w + e.w, e.to});
+                }
+            }
+        }
+        return {NONE, MAX_PENA};
+    }
+
+    void partial_update(const Point &center, double dist) {
+        auto      target_v = accumulate_near(center, dist);
+        ans_vec_t target_bit;
+        for (auto &v : target_v) target_bit.set(v);
+        MiniGraph mini(D, K, target_v);
+        for (auto &v : target_v) {
+            for (auto &e : gph[v]) {
+                if (target_bit[e.to]) {
+                    mini.add_edge(v, e.to, e.w, ans.get(e.id));
+                }
+            }
+        }
+    }
+
     bool thermo(long long diff) {
+        // return true;
         return diff < 0;
-        // return exp(-diff/2e12*(clock() - begin_time)) * mt19937::max() > mt();
+        // return exp(-diff/2e12*(clock() - begin_time)) * mt19937::max() >
+        // mt();
     }
 
     void anneal() {
         while ((clock() - begin_time) < TIME_LIMIT * CLOCKS_PER_SEC) {
-            auto crr_edge   = randM(mt);
-            auto crr_offset = randD_1(mt);
-            int  a = -1, b = -1;
-            rep(d, D) {
-                if (ans[d][crr_edge]) {
-                    a = d;
-                    b = a + crr_offset;
-                    if (D <= b) b -= D;
-                    break;
-                }
-            }
-            if((int)ans[b].count() == K) continue;
-            auto connect1 = connection(b);
-            ans[b].flip(crr_edge);
-            auto connect2 = connection(b);
-            ans[b].flip(crr_edge);
-            auto diff = check_diff(crr_edge, a) + check_diff(crr_edge, b);
-            if (connect2 <= connect1 && thermo(diff)) {
-                ans[a].flip(crr_edge);
-                ans[b].flip(crr_edge);
+            const auto crr_edge   = randM(mt);
+            const auto crr_offset = randD_1(mt);
+            int        a          = ans.get(crr_edge);
+            int        b          = a + crr_offset;
+            if (D <= b) b -= D;
+            if (ans.count(b) == K) continue;
+            const auto diff = check_diff(crr_edge, a) + check_diff(crr_edge, b);
+            if (thermo(diff)) {
+                ans.set_day(crr_edge, b);
             }
         }
     }
@@ -455,8 +653,8 @@ struct Solver {
           D(d),
           K(k),
           edge(m),
-          p(n),
-          ans(d),
+          points(n),
+          ans(m, d),
           gph(n),
           randM(0, M - 1),
           randD_1(0, D - 2) {
