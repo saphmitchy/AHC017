@@ -6,57 +6,27 @@
 #include <bitset>
 #include <cassert>
 #include <climits>
-#include <cmath>
-#include <complex>
 #include <ctime>
-#include <functional>
-#include <iomanip>
 #include <iostream>
 #include <iterator>
-#include <limits>
 #include <map>
-#include <memory>
-#include <numeric>
 #include <queue>
 #include <random>
 #include <set>
-#include <stack>
-#include <unordered_map>
-#include <unordered_set>
-#include <valarray>
 #include <vector>
 
 #define rep(i, n) for (int i = 0; i < int(n); i++)
 #define per(i, n) for (int i = (n)-1; i >= 0; i--)
-#define rep2(i, n, s) for (int i = (s); i < int(n); i++)
-#define per2(i, n, s) for (int i = (n)-1; i >= int(s); i--)
-#define MM << " " <<
 #define all(x) begin(x), end(x)
-#define rall(x) rbegin(x), rend(x)
 
 template<class T>
 using MinHeap = std::priority_queue<T, std::vector<T>, std::greater<T>>;
-template<class T>
-using MaxHeap = std::priority_queue<T>;
 
-using ll  = long long;
-using pii = std::pair<int, int>;
-using pll = std::pair<ll, ll>;
-using pdd = std::pair<double, double>;
+using ll = long long;
 
 template<class T>
 bool chmin(T &a, const T b) {
     if (b < a) {
-        a = b;
-        return true;
-    } else {
-        return false;
-    }
-}
-
-template<class T>
-bool chmax(T &a, const T b) {
-    if (a < b) {
         a = b;
         return true;
     } else {
@@ -226,10 +196,6 @@ struct Edge {
 
 bool operator<(const Edge &lhs, const Edge &rhs) {
     return lhs.w > rhs.w;
-    // if (lhs.v0 == rhs.v0)
-    //     return lhs.v1 < rhs.v1;
-    // else
-    //     return lhs.v0 < rhs.v0;
 }
 
 struct DEdge {
@@ -322,7 +288,6 @@ struct MiniGraph {
     }
 
     ll connection(const int day) {
-        // TODO Dedge
         UnionFind uf(N);
         int       disconnect = N * (N - 1) / 2;
         for (auto &e : edge) {
@@ -398,14 +363,12 @@ struct MiniGraph {
                       const int      day) {
         from = global2local[from];
         to   = global2local[to];
-        // edge.emplace_back(from, to, w, edge_count);
         dgph[day][to].emplace_back(from, w, -1);
         dgph[day][from].emplace_back(to, w, -1);
     }
 
     bool thermo(long long diff, int c) {
         return diff < 0;
-        // return exp(-diff / 2e3 * (50 - c)) * mt19937::max() > mt();
     }
 
     void anneal() {
@@ -525,7 +488,6 @@ struct Solver {
                 ans.set_day(e.id, NONE);
             }
             ans.set_day(e.id, crr_day);
-            // cout << crr_day << " "; vdeb(ans.counter);
         }
     }
 
@@ -658,14 +620,12 @@ struct Solver {
                 if (target_bit[e.to]) {
                     if (e.to < v) {
                         upd[mini.add_edge(v, e.to, e.w, ans.get(e.id))] = e.id;
-                        // cout << v MM e.to MM e.w MM e.id << endl;
                     }
                 } else {
                     rep(d, D) {
                         if (!ans.is_avalable(e.id, d)) continue;
                         ;
                         auto [t, w] = shortest_element(v, e, target_bit, d);
-                        // cout << v MM t MM w MM d << endl;
                         if (t != NONE) mini.add_day_edge(v, t, w, d);
                     }
                 }
@@ -675,18 +635,10 @@ struct Solver {
         for (auto &e : mini.edge) {
             ans.set_day(upd[e.id], mini.get_day(e.id));
         }
-        // output();
-        // vdeb(target_v);
-        // rep(i,D) {
-        //     cout << i MM connection(i) << endl;
-        // }
     }
 
     bool thermo(long long diff) {
-        // return true;
         return diff < 0;
-        // return exp(-diff/2e12*(clock() - begin_time)) * mt19937::max() >
-        // mt();
     }
 
     int square_dist_from_center(int x, int y) const {
